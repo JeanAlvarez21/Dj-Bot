@@ -1,12 +1,6 @@
 require("dotenv").config();
 
 const ffmpegPath = require("ffmpeg-static");
-const { generateDependencyReport } = require("@discordjs/voice");
-
-console.log("🔎 Reporte de dependencias de voz:\n", generateDependencyReport());
-console.log("✅ FFmpeg encontrado en:", ffmpegPath);
-
-
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
@@ -27,14 +21,8 @@ const client = new Client({
 });
 
 // --- Inicializar DisTube ---
-const distube = new DisTube(client, {
+client.distube = new DisTube(client, {
   plugins: [new SpotifyPlugin(), new YouTubePlugin()],
-  ytdlOptions: {
-    ffmpeg: ffmpegPath,
-    filter: "audioonly",
-    quality: "highestaudio",
-    highWaterMark: 1 << 25,
-  },
 });
 
 // --- Almacenar mensajes de control activos ---
