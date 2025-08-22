@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+const ffmpegPath = require("ffmpeg-static");
+process.env.FFMPEG_PATH = ffmpegPath;
+
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
