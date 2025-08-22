@@ -28,12 +28,9 @@ const client = new Client({
 
 // --- Inicializar DisTube ---
 const distube = new DisTube(client, {
-  leaveOnStop: false,
-  emitAddSongWhenCreatingQueue: true,
-  emitAddListWhenCreatingQueue: true,
   plugins: [new SpotifyPlugin(), new YouTubePlugin()],
   ytdlOptions: {
-    ffmpeg: ffmpegPath, // 👈 fuerza a usar ffmpeg-static
+    ffmpeg: ffmpegPath,
     filter: "audioonly",
     quality: "highestaudio",
     highWaterMark: 1 << 25,
