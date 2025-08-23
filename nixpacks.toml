@@ -1,0 +1,12 @@
+# Archivo para configurar el proveedor Nixpacks en Railway
+[phases.setup]
+nixPkgs = ["nodejs_20", "ffmpeg"]
+
+[phases.install]
+cmd = "npm ci"
+
+[phases.build]
+cmd = "echo 'No build step required'"
+
+[start]
+cmd = "node index.js"
