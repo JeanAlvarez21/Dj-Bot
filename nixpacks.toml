@@ -1,6 +1,6 @@
 # Archivo para configurar el proveedor Nixpacks en Railway
 [phases.setup]
-nixPkgs = ["nodejs_20", "ffmpeg", "opus"]
+nixPkgs = ["nodejs_20", "ffmpeg", "opus", "yt-dlp"]
 
 [phases.install]
 cmd = "npm ci"

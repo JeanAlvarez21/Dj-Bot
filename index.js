@@ -5,6 +5,7 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowB
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
 const { YouTubePlugin } = require("@distube/youtube");
+const { YtDlpPlugin } = require("@distube/yt-dlp");
 
 // --- Variables de entorno ---
 const TOKEN = process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN;
@@ -39,7 +40,24 @@ const client = new Client({
 
 // --- Inicializar DisTube ---
 client.distube = new DisTube(client, {
-  plugins: [new SpotifyPlugin(), new YouTubePlugin()],
+  plugins: [
+    new SpotifyPlugin(),
+    new YtDlpPlugin({
+      update: false
+    }),
+    new YouTubePlugin({
+      ytdlOptions: {
+        quality: 'lowestaudio',
+        filter: 'audioonly',
+        highWaterMark: 1024 * 1024 * 10,
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          }
+        }
+      }
+    })
+  ],
   ffmpeg: {
     path: ffmpegPath || '/usr/bin/ffmpeg',
     args: {
@@ -326,8 +344,16 @@ client.distube
     
     // Verificar si el error tiene mensaje
     if (error && error.message) {
-      if (error.message.includes('Sign in to confirm')) {
-        errorMessage = "❌ Video requiere confirmación de edad. Prueba con otra canción.";
+      if (error.message.includes('Sign in to confirm') || error.message.includes('not a bot')) {
+        errorMessage = "❌ YouTube bloqueó el video (detección de bot). Prueba con otra canción o un enlace directo.";
+        // Intentar saltar automáticamente
+        if (queue && queue.skip) {
+          try {
+            queue.skip();
+          } catch (skipError) {
+            console.error("Error saltando canción:", skipError);
+          }
+        }
       } else if (error.message.includes('unavailable')) {
         errorMessage = "❌ Video no disponible. Prueba con otra canción.";
       } else if (error.message.includes('private')) {
