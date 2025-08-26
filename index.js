@@ -42,9 +42,6 @@ const client = new Client({
 client.distube = new DisTube(client, {
   plugins: [
     new SpotifyPlugin(),
-    new YtDlpPlugin({
-      update: false
-    }),
     new YouTubePlugin({
       ytdlOptions: {
         quality: 'lowestaudio',
@@ -56,26 +53,13 @@ client.distube = new DisTube(client, {
           }
         }
       }
+    }),
+    new YtDlpPlugin({
+      update: false
     })
   ],
   ffmpeg: {
-    path: ffmpegPath || '/usr/bin/ffmpeg',
-    args: {
-      global: {
-        "-loglevel": "error"
-      },
-      input: {
-        "-reconnect": "1",
-        "-reconnect_streamed": "1",
-        "-reconnect_delay_max": "5"
-      },
-      output: {
-        "-f": "opus",
-        "-ar": "48000",
-        "-ac": "2",
-        "-b:a": "128k"
-      }
-    }
+    path: ffmpegPath || '/usr/bin/ffmpeg'
   },
   emitNewSongOnly: true,
   nsfw: false
@@ -346,8 +330,8 @@ client.distube
     if (error && error.message) {
       if (error.message.includes('Sign in to confirm') || error.message.includes('not a bot')) {
         errorMessage = "❌ YouTube bloqueó el video (detección de bot). Prueba con otra canción o un enlace directo.";
-        // Intentar saltar automáticamente
-        if (queue && queue.skip) {
+        // Intentar saltar automáticamente con validación
+        if (queue && queue.songs && queue.songs.length > 1 && queue.skip) {
           try {
             queue.skip();
           } catch (skipError) {
@@ -362,13 +346,20 @@ client.distube
         errorMessage = "❌ Video bloqueado por derechos de autor.";
       } else if (error.message.includes('ffmpeg exited with code 1') || error.errorCode === 'FFMPEG_EXITED') {
         errorMessage = "❌ Error de audio en Railway. Intentando saltar...";
-        // Intentar saltar la canción automáticamente
-        if (queue && queue.skip) {
+        // Intentar saltar la canción automáticamente, pero con validación
+        if (queue && queue.songs && queue.songs.length > 1 && queue.skip) {
           try {
             queue.skip();
           } catch (skipError) {
             console.error("Error saltando canción:", skipError);
+            // Si no se puede saltar, detener la cola
+            if (queue.stop) {
+              queue.stop();
+            }
           }
+        } else if (queue && queue.stop) {
+          // Si no hay más canciones, detener completamente
+          queue.stop();
         }
       } else if (error.message.includes('ffmpeg')) {
         errorMessage = "❌ Error de procesamiento de audio. Prueba con otra canción.";
