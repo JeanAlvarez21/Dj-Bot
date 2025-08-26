@@ -390,14 +390,14 @@ client.on("interactionCreate", async (interaction) => {
           break;
 
         case 'music_skip':
-          if (!queue) return interaction.reply({ content: "❌ No hay música en la cola.", ephemeral: true });
+          if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
           await queue.skip();
           await interaction.reply({ content: "⏭️ Canción saltada.", ephemeral: true });
           // No necesitamos actualizar aquí porque el evento "playSong" se disparará
           break;
 
         case 'music_stop':
-          if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", ephemeral: true });
+          if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
           queue.stop();
           await interaction.reply({ content: "🛑 Música detenida y cola vaciada.", ephemeral: true });
           // El panel se limpiará automáticamente con el evento "finish"
