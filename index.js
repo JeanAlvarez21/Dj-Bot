@@ -7,9 +7,26 @@ const { SpotifyPlugin } = require("@distube/spotify");
 const { YouTubePlugin } = require("@distube/youtube");
 
 // --- Variables de entorno ---
-const TOKEN = process.env.DISCORD_TOKEN;
+const TOKEN = process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
+
+// --- Debug de variables de entorno ---
+console.log("🔍 Verificando variables de entorno...");
+console.log("TOKEN presente:", !!TOKEN);
+console.log("CLIENT_ID presente:", !!CLIENT_ID);
+console.log("GUILD_ID presente:", !!GUILD_ID);
+
+if (!TOKEN) {
+  console.error("❌ Error: Token de Discord no encontrado!");
+  console.error("💡 Asegúrate de configurar DISCORD_BOT_TOKEN en Railway");
+  process.exit(1);
+}
+
+if (!CLIENT_ID) {
+  console.error("❌ Error: CLIENT_ID no encontrado!");
+  process.exit(1);
+}
 
 // --- Crear cliente ---
 const client = new Client({
