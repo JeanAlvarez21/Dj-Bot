@@ -1,6 +1,5 @@
 require("dotenv").config();
 
-const ffmpegPath = require("ffmpeg-static");
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
@@ -44,23 +43,14 @@ client.distube = new DisTube(client, {
     new SpotifyPlugin(),
     new YouTubePlugin({
       ytdlOptions: {
-        quality: 'lowestaudio',
-        filter: 'audioonly',
-        highWaterMark: 1024 * 1024 * 10,
-        requestOptions: {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
-        }
+        quality: 'highestaudio',
+        filter: 'audioonly'
       }
     }),
     new YtDlpPlugin({
       update: false
     })
   ],
-  ffmpeg: {
-    path: ffmpegPath || '/usr/bin/ffmpeg'
-  },
   emitNewSongOnly: true,
   nsfw: false
 });
