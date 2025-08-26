@@ -40,6 +40,20 @@ const client = new Client({
 // --- Inicializar DisTube ---
 client.distube = new DisTube(client, {
   plugins: [new SpotifyPlugin(), new YouTubePlugin()],
+  ffmpeg: {
+    path: ffmpegPath
+  },
+  emitNewSongOnly: true,
+  leaveOnEmpty: true,
+  leaveOnFinish: false,
+  leaveOnStop: true,
+  savePreviousSongs: true,
+  searchSongs: 10,
+  searchCooldown: 30,
+  emptyCooldown: 0,
+  nsfw: false,
+  emitAddSongWhenCreatingQueue: false,
+  emitAddListWhenCreatingQueue: false
 });
 
 // --- Almacenar mensajes de control activos ---
@@ -296,9 +310,30 @@ client.distube
     queue.textChannel?.send("❌ No se pudieron encontrar canciones relacionadas").catch(() => {});
   })
   .on("error", (textChannel, error) => {
-    console.error("❌ DisTube Error:", error);
+    console.error("❌ DisTube Error completo:", error);
+    console.error("❌ Stack trace:", error.stack);
+    console.error("❌ Error name:", error.name);
+    console.error("❌ Error message:", error.message);
+    
+    let errorMessage = "⚠️ Error reproduciendo música";
+    
+    // Manejar errores específicos
+    if (error.message) {
+      if (error.message.includes('Sign in to confirm')) {
+        errorMessage = "❌ Video requiere confirmación de edad. Prueba con otra canción.";
+      } else if (error.message.includes('unavailable')) {
+        errorMessage = "❌ Video no disponible. Prueba con otra canción.";
+      } else if (error.message.includes('private')) {
+        errorMessage = "❌ Video privado. Prueba con otra canción.";
+      } else if (error.message.includes('copyright')) {
+        errorMessage = "❌ Video bloqueado por derechos de autor.";
+      } else {
+        errorMessage = `⚠️ Error: ${String(error.message).slice(0, 100)}`;
+      }
+    }
+    
     if (textChannel && typeof textChannel.send === 'function') {
-      textChannel.send(`⚠️ Error: \`${String(error.message).slice(0, 150)}\``).catch(() => {});
+      textChannel.send(errorMessage).catch(() => {});
     }
   });
 
@@ -341,7 +376,16 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         await interaction.reply(`🔎 Buscando: **${query}**`);
-        await client.distube.play(voiceChannel, query, { textChannel: interaction.channel, member: interaction.member });
+        
+        try {
+          await client.distube.play(voiceChannel, query, { 
+            textChannel: interaction.channel, 
+            member: interaction.member 
+          });
+        } catch (playError) {
+          console.error("Error en play command:", playError);
+          await interaction.followUp(`❌ Error al reproducir: ${playError.message || 'Error desconocido'}`);
+        }
       }
 
       if (name === "join") {
