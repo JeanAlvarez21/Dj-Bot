@@ -44,16 +44,7 @@ client.distube = new DisTube(client, {
     path: ffmpegPath
   },
   emitNewSongOnly: true,
-  leaveOnEmpty: true,
-  leaveOnFinish: false,
-  leaveOnStop: true,
-  savePreviousSongs: true,
-  searchSongs: 10,
-  searchCooldown: 30,
-  emptyCooldown: 0,
-  nsfw: false,
-  emitAddSongWhenCreatingQueue: false,
-  emitAddListWhenCreatingQueue: false
+  nsfw: false
 });
 
 // --- Almacenar mensajes de control activos ---
