@@ -333,11 +333,11 @@ client.on("interactionCreate", async (interaction) => {
       if (name === "p") {
         const query = interaction.options.getString("cancion", true);
         const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", ephemeral: true });
+        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", flags: 64 });
 
         const permissions = voiceChannel.permissionsFor(client.user);
         if (!permissions.has(['Connect', 'Speak'])) {
-          return interaction.reply({ content: "❌ No tengo permisos para conectar o hablar en este canal de voz.", ephemeral: true });
+          return interaction.reply({ content: "❌ No tengo permisos para conectar o hablar en este canal de voz.", flags: 64 });
         }
 
         await interaction.reply(`🔎 Buscando: **${query}**`);
@@ -346,7 +346,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (name === "join") {
         const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", ephemeral: true });
+        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", flags: 64 });
 
         await interaction.reply("🔗 Intentando conectar...");
         await client.distube.voices.join(voiceChannel);
@@ -369,14 +369,14 @@ client.on("interactionCreate", async (interaction) => {
           if (queue.songs.length > 0) status += `🎵 Canción actual: ${queue.songs[0].name}\n`;
         }
 
-        return interaction.reply({ content: status, ephemeral: true });
+        return interaction.reply({ content: status, flags: 64 });
       }
     } catch (err) {
       console.error(err);
       if (interaction.deferred || interaction.replied) {
         interaction.followUp({ content: "⚠️ Ocurrió un error ejecutando el comando." }).catch(() => {});
       } else {
-        interaction.reply({ content: "⚠️ Ocurrió un error ejecutando el comando.", ephemeral: true }).catch(() => {});
+        interaction.reply({ content: "⚠️ Ocurrió un error ejecutando el comando.", flags: 64 }).catch(() => {});
       }
     }
   }
@@ -388,16 +388,16 @@ client.on("interactionCreate", async (interaction) => {
     try {
       switch (interaction.customId) {
         case 'music_pause_resume':
-          if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", ephemeral: true });
+          if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
           
           if (queue.paused) {
             queue.resume();
-            await interaction.reply({ content: "▶️ Música reanudada.", ephemeral: true });
+            await interaction.reply({ content: "▶️ Música reanudada.", flags: 64 });
             // Reanudar actualizaciones de progreso
             startProgressUpdate(queue, queue.songs[0]);
           } else {
             queue.pause();
-            await interaction.reply({ content: "⏸️ Música pausada.", ephemeral: true });
+            await interaction.reply({ content: "⏸️ Música pausada.", flags: 64 });
             // Pausar actualizaciones de progreso
             stopProgressUpdate(queue.id);
           }
@@ -409,19 +409,19 @@ client.on("interactionCreate", async (interaction) => {
         case 'music_skip':
           if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
           await queue.skip();
-          await interaction.reply({ content: "⏭️ Canción saltada.", ephemeral: true });
+          await interaction.reply({ content: "⏭️ Canción saltada.", flags: 64 });
           // No necesitamos actualizar aquí porque el evento "playSong" se disparará
           break;
 
         case 'music_stop':
           if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
           queue.stop();
-          await interaction.reply({ content: "🛑 Música detenida y cola vaciada.", ephemeral: true });
+          await interaction.reply({ content: "🛑 Música detenida y cola vaciada.", flags: 64 });
           // El panel se limpiará automáticamente con el evento "finish"
           break;
 
         case 'music_queue':
-          if (!queue || !queue.songs.length) return interaction.reply({ content: "🕳️ Cola vacía.", ephemeral: true });
+          if (!queue || !queue.songs.length) return interaction.reply({ content: "🕳️ Cola vacía.", flags: 64 });
 
           const queueEmbed = new EmbedBuilder()
             .setColor(0x0099FF)
@@ -438,31 +438,31 @@ client.on("interactionCreate", async (interaction) => {
             queueEmbed.setFooter({ text: `Mostrando 10 de ${queue.songs.length} canciones` });
           }
 
-          await interaction.reply({ embeds: [queueEmbed], ephemeral: true });
+          await interaction.reply({ embeds: [queueEmbed], flags: 64 });
           break;
 
         case 'music_clear_queue':
           if (!queue || queue.songs.length <= 1) {
-            return interaction.reply({ content: "❌ No hay canciones en cola para limpiar.", ephemeral: true });
+            return interaction.reply({ content: "❌ No hay canciones en cola para limpiar.", flags: 64 });
           }
           
           // Mantener solo la canción actual
           const currentSong = queue.songs[0];
           queue.songs.splice(1); // Eliminar todas excepto la primera
           
-          await interaction.reply({ content: `🗑️ Cola limpiada. Solo queda: **${currentSong.name}**`, ephemeral: true });
+          await interaction.reply({ content: `🗑️ Cola limpiada. Solo queda: **${currentSong.name}**`, flags: 64 });
           
           // Actualizar panel para reflejar la cola limpia
           updateControlPanel(queue, currentSong);
           break;
 
         default:
-          await interaction.reply({ content: "❌ Botón no reconocido.", ephemeral: true });
+          await interaction.reply({ content: "❌ Botón no reconocido.", flags: 64 });
       }
     } catch (err) {
       console.error('Error manejando botón:', err);
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: "⚠️ Ocurrió un error procesando el botón.", ephemeral: true });
+        await interaction.reply({ content: "⚠️ Ocurrió un error procesando el botón.", flags: 64 });
       }
     }
   }
