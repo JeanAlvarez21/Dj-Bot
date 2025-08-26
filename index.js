@@ -41,7 +41,23 @@ const client = new Client({
 client.distube = new DisTube(client, {
   plugins: [new SpotifyPlugin(), new YouTubePlugin()],
   ffmpeg: {
-    path: ffmpegPath
+    path: ffmpegPath || '/usr/bin/ffmpeg',
+    args: {
+      global: {
+        "-loglevel": "error"
+      },
+      input: {
+        "-reconnect": "1",
+        "-reconnect_streamed": "1",
+        "-reconnect_delay_max": "5"
+      },
+      output: {
+        "-f": "opus",
+        "-ar": "48000",
+        "-ac": "2",
+        "-b:a": "128k"
+      }
+    }
   },
   emitNewSongOnly: true,
   nsfw: false
@@ -318,6 +334,16 @@ client.distube
         errorMessage = "❌ Video privado. Prueba con otra canción.";
       } else if (error.message.includes('copyright')) {
         errorMessage = "❌ Video bloqueado por derechos de autor.";
+      } else if (error.message.includes('ffmpeg exited with code 1') || error.errorCode === 'FFMPEG_EXITED') {
+        errorMessage = "❌ Error de audio en Railway. Intentando saltar...";
+        // Intentar saltar la canción automáticamente
+        if (queue && queue.skip) {
+          try {
+            queue.skip();
+          } catch (skipError) {
+            console.error("Error saltando canción:", skipError);
+          }
+        }
       } else if (error.message.includes('ffmpeg')) {
         errorMessage = "❌ Error de procesamiento de audio. Prueba con otra canción.";
       } else {
