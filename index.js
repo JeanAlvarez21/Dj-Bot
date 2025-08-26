@@ -300,16 +300,16 @@ client.distube
     console.log("❌ No se encontraron canciones relacionadas");
     queue.textChannel?.send("❌ No se pudieron encontrar canciones relacionadas").catch(() => {});
   })
-  .on("error", (textChannel, error) => {
+  .on("error", (error, queue) => {
     console.error("❌ DisTube Error completo:", error);
-    console.error("❌ Stack trace:", error.stack);
-    console.error("❌ Error name:", error.name);
-    console.error("❌ Error message:", error.message);
+    console.error("❌ Stack trace:", error?.stack);
+    console.error("❌ Error name:", error?.name);
+    console.error("❌ Error message:", error?.message);
     
     let errorMessage = "⚠️ Error reproduciendo música";
     
-    // Manejar errores específicos
-    if (error.message) {
+    // Verificar si el error tiene mensaje
+    if (error && error.message) {
       if (error.message.includes('Sign in to confirm')) {
         errorMessage = "❌ Video requiere confirmación de edad. Prueba con otra canción.";
       } else if (error.message.includes('unavailable')) {
@@ -318,13 +318,16 @@ client.distube
         errorMessage = "❌ Video privado. Prueba con otra canción.";
       } else if (error.message.includes('copyright')) {
         errorMessage = "❌ Video bloqueado por derechos de autor.";
+      } else if (error.message.includes('ffmpeg')) {
+        errorMessage = "❌ Error de procesamiento de audio. Prueba con otra canción.";
       } else {
         errorMessage = `⚠️ Error: ${String(error.message).slice(0, 100)}`;
       }
     }
     
-    if (textChannel && typeof textChannel.send === 'function') {
-      textChannel.send(errorMessage).catch(() => {});
+    // Enviar mensaje al canal
+    if (queue && queue.textChannel && typeof queue.textChannel.send === 'function') {
+      queue.textChannel.send(errorMessage).catch(() => {});
     }
   });
 
