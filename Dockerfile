@@ -18,6 +18,7 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Instalar dependencias de Node.js
+RUN npm install -g npm@latest
 RUN npm ci --only=production && npm cache clean --force
 
 # Copiar código fuente
