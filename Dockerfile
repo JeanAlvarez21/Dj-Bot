@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar yt-dlp
-RUN pip3 install yt-dlp
+# Instalar yt-dlp (versión específica que funciona sin warnings)
+RUN pip3 install yt-dlp==2024.8.6
 
 # Crear directorio de trabajo
 WORKDIR /usr/src/app

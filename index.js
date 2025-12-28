@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
 const { YouTubePlugin } = require("@distube/youtube");
@@ -28,6 +29,67 @@ if (!CLIENT_ID) {
   process.exit(1);
 }
 
+// --- Función helper para buscar en YouTube con yt-dlp ---
+async function searchYouTube(query) {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+
+  try {
+    // Obtener el título, ID y URL directa del stream
+    const { stdout } = await execAsync(`python -m yt_dlp "ytsearch:${query}" --get-title --get-id --get-url --skip-download -f bestaudio`, {
+      timeout: 15000
+    });
+
+    const lines = stdout.trim().split('\n');
+    if (lines.length >= 3) {
+      const title = lines[0];
+      const videoId = lines[1];
+      const streamUrl = lines[2]; // URL directa del stream
+      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      return { title, url: youtubeUrl, streamUrl };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error buscando en YouTube:', error);
+    return null;
+  }
+}
+
+// --- Función para reproducir stream directo con @discordjs/voice ---
+async function playDirectStream(voiceChannel, streamUrl, title, textChannel) {
+  try {
+    const connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId: voiceChannel.guild.id,
+      adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+    });
+
+    const player = createAudioPlayer();
+    const resource = createAudioResource(streamUrl);
+
+    player.play(resource);
+    connection.subscribe(player);
+
+    textChannel.send(`🎶 Reproduciendo: **${title}**`);
+
+    player.on(AudioPlayerStatus.Idle, () => {
+      connection.destroy();
+    });
+
+    player.on('error', error => {
+      console.error('Error en el reproductor:', error);
+      textChannel.send(`❌ Error al reproducir: ${error.message}`);
+      connection.destroy();
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error reproduciendo stream directo:', error);
+    return false;
+  }
+}
+
 // --- Crear cliente ---
 const client = new Client({
   intents: [
@@ -41,14 +103,17 @@ const client = new Client({
 client.distube = new DisTube(client, {
   plugins: [
     new SpotifyPlugin(),
+    new YtDlpPlugin({
+      update: false,
+      ytDlpPath: 'python',
+      ytDlpArgs: ['-m', 'yt_dlp']
+    }),
     new YouTubePlugin({
       ytdlOptions: {
         quality: 'highestaudio',
-        filter: 'audioonly'
+        filter: 'audioonly',
+        highWaterMark: 1 << 25
       }
-    }),
-    new YtDlpPlugin({
-      update: false
     })
   ],
   emitNewSongOnly: true,
@@ -109,7 +174,7 @@ function createMusicEmbed(song, queue) {
   const duration = song.duration;
   const progressBar = createProgressBar(currentTime, duration);
   const currentFormatted = formatTime(currentTime);
-  
+
   embed.addFields({
     name: '🎵 Progreso',
     value: `${currentFormatted} ${progressBar} ${song.formattedDuration}`,
@@ -121,10 +186,10 @@ function createMusicEmbed(song, queue) {
     const nextSong = queue.songs[1];
     embed.addFields(
       { name: '📝 Canciones en cola', value: `${queue.songs.length - 1}`, inline: true },
-      { 
-        name: '⏭️ Sigue:', 
-        value: `**${nextSong.name.length > 40 ? nextSong.name.slice(0, 40) + '...' : nextSong.name}**\n👤pedida por: ${nextSong.user.displayName}`, 
-        inline: true 
+      {
+        name: '⏭️ Sigue:',
+        value: `**${nextSong.name.length > 40 ? nextSong.name.slice(0, 40) + '...' : nextSong.name}**\n👤pedida por: ${nextSong.user.displayName}`,
+        inline: true
       }
     );
   } else {
@@ -137,14 +202,14 @@ function createMusicEmbed(song, queue) {
 // --- Función para crear barra de progreso ---
 function createProgressBar(current, total, length = 20) {
   if (!total || total === 0) return '▬'.repeat(length);
-  
+
   const progress = Math.min(current / total, 1);
   const filledLength = Math.round(progress * length);
   const emptyLength = length - filledLength;
-  
+
   const filled = '🟩'.repeat(Math.max(0, filledLength));
   const empty = '⬜'.repeat(Math.max(0, emptyLength));
-  
+
   return filled + empty;
 }
 
@@ -159,12 +224,12 @@ function formatTime(seconds) {
 async function updateControlPanel(queue, song) {
   const guildId = queue.id;
   const channel = queue.textChannel;
-  
+
   if (!channel) return;
 
   const embed = createMusicEmbed(song, queue);
   const buttons = createMusicControlButtons(queue);
-  
+
   try {
     // Si existe un mensaje de control anterior, intentar eliminarlo
     const existingControl = activeControlMessages.get(guildId);
@@ -199,15 +264,15 @@ async function updateControlPanel(queue, song) {
 // --- Función para iniciar actualización de progreso ---
 function startProgressUpdate(queue, song) {
   const guildId = queue.id;
-  
+
   // Limpiar intervalo anterior si existe
   stopProgressUpdate(guildId);
-  
+
   const interval = setInterval(async () => {
     try {
       const currentQueue = client.distube.getQueue(guildId);
       if (!currentQueue || !currentQueue.playing || currentQueue.paused) return;
-      
+
       const controlData = activeControlMessages.get(guildId);
       if (!controlData || !controlData.message) {
         stopProgressUpdate(guildId);
@@ -216,18 +281,18 @@ function startProgressUpdate(queue, song) {
 
       const updatedEmbed = createMusicEmbed(song, currentQueue);
       const buttons = createMusicControlButtons(currentQueue);
-      
+
       await controlData.message.edit({
         embeds: [updatedEmbed],
         components: buttons
       });
-      
+
     } catch (error) {
       // Si hay error, detener las actualizaciones
       stopProgressUpdate(guildId);
     }
   }, 5000); // Actualizar cada 5 segundos
-  
+
   progressUpdateIntervals.set(guildId, interval);
 }
 
@@ -244,7 +309,7 @@ function stopProgressUpdate(guildId) {
 async function clearControlPanel(guildId) {
   // Detener actualizaciones de progreso
   stopProgressUpdate(guildId);
-  
+
   const existingControl = activeControlMessages.get(guildId);
   if (existingControl && existingControl.message) {
     try {
@@ -260,17 +325,17 @@ async function clearControlPanel(guildId) {
 client.distube
   .on("playSong", (queue, song) => {
     console.log(`🎶 REPRODUCIENDO: ${song.name} - Duración: ${song.formattedDuration}`);
-    
+
     // Enviar mensaje simple de "reproduciendo" sin botones
     queue.textChannel?.send(`🎶 Reproduciendo: **${song.name}** \`${song.formattedDuration}\``).catch(console.error);
-    
+
     // Actualizar panel de control (siempre al final)
     updateControlPanel(queue, song);
   })
   .on("addSong", (queue, song) => {
     console.log(`➕ Canción añadida: ${song.name}`);
-    queue.textChannel?.send(`➕ Añadida a la cola: **${song.name}**`).catch(() => {});
-    
+    queue.textChannel?.send(`➕ Añadida a la cola: **${song.name}**`).catch(() => { });
+
     // Actualizar panel para mostrar nueva información de cola
     if (queue.songs.length > 1) { // Solo si hay más de una canción
       updateControlPanel(queue, queue.songs[0]);
@@ -278,44 +343,44 @@ client.distube
   })
   .on("addList", (queue, playlist) => {
     console.log(`🧾 Playlist añadida: ${playlist.name}`);
-    queue.textChannel?.send(`🧾 Playlist añadida: **${playlist.name}** (${playlist.songs.length} canciones)`).catch(() => {});
-    
+    queue.textChannel?.send(`🧾 Playlist añadida: **${playlist.name}** (${playlist.songs.length} canciones)`).catch(() => { });
+
     // Actualizar panel después de agregar playlist
     updateControlPanel(queue, queue.songs[0]);
   })
   .on("finish", queue => {
     console.log("✅ Cola terminada");
-    queue.textChannel?.send("✅ Cola terminada").catch(() => {});
-    
+    queue.textChannel?.send("✅ Cola terminada").catch(() => { });
+
     // Limpiar panel de control
     clearControlPanel(queue.id);
   })
   .on("empty", queue => {
     console.log("📭 Canal de voz vacío, deteniendo música");
-    queue.textChannel?.send("📭 Canal de voz vacío, parando música...").catch(() => {});
-    
+    queue.textChannel?.send("📭 Canal de voz vacío, parando música...").catch(() => { });
+
     // Limpiar panel de control
     clearControlPanel(queue.id);
   })
   .on("disconnect", queue => {
     console.log("🔌 Bot desconectado del canal de voz");
-    queue.textChannel?.send("🔌 Desconectado del canal de voz").catch(() => {});
-    
+    queue.textChannel?.send("🔌 Desconectado del canal de voz").catch(() => { });
+
     // Limpiar panel de control
     clearControlPanel(queue.id);
   })
   .on("noRelated", queue => {
     console.log("❌ No se encontraron canciones relacionadas");
-    queue.textChannel?.send("❌ No se pudieron encontrar canciones relacionadas").catch(() => {});
+    queue.textChannel?.send("❌ No se pudieron encontrar canciones relacionadas").catch(() => { });
   })
   .on("error", (error, queue) => {
     console.error("❌ DisTube Error completo:", error);
     console.error("❌ Stack trace:", error?.stack);
     console.error("❌ Error name:", error?.name);
     console.error("❌ Error message:", error?.message);
-    
+
     let errorMessage = "⚠️ Error reproduciendo música";
-    
+
     // Verificar si el error tiene mensaje
     if (error && error.message) {
       if (error.message.includes('Sign in to confirm') || error.message.includes('not a bot')) {
@@ -357,10 +422,10 @@ client.distube
         errorMessage = `⚠️ Error: ${String(error.message).slice(0, 100)}`;
       }
     }
-    
+
     // Enviar mensaje al canal
     if (queue && queue.textChannel && typeof queue.textChannel.send === 'function') {
-      queue.textChannel.send(errorMessage).catch(() => {});
+      queue.textChannel.send(errorMessage).catch(() => { });
     }
   });
 
@@ -393,21 +458,50 @@ client.on("interactionCreate", async (interaction) => {
 
     try {
       if (name === "p") {
+        // Defer la respuesta inmediatamente para evitar timeout
+        try {
+          await interaction.deferReply();
+        } catch (deferError) {
+          // Si la interacción ya expiró, ignorar silenciosamente
+          if (deferError.code === 10062) {
+            console.log("⚠️ Interacción expirada, ignorando comando antiguo");
+            return;
+          }
+          throw deferError;
+        }
+
         const query = interaction.options.getString("cancion", true);
         const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", flags: 64 });
+
+        if (!voiceChannel) {
+          return interaction.editReply({ content: "❌ Debes estar en un canal de voz." });
+        }
 
         const permissions = voiceChannel.permissionsFor(client.user);
         if (!permissions.has(['Connect', 'Speak'])) {
-          return interaction.reply({ content: "❌ No tengo permisos para conectar o hablar en este canal de voz.", flags: 64 });
+          return interaction.editReply({ content: "❌ No tengo permisos para conectar o hablar en este canal de voz." });
         }
 
-        await interaction.reply(`🔎 Buscando: **${query}**`);
-        
+        await interaction.editReply(`🔎 Buscando: **${query}**`);
+
+
         try {
-          await client.distube.play(voiceChannel, query, { 
-            textChannel: interaction.channel, 
-            member: interaction.member 
+          let searchQuery = query;
+
+          // Si no es una URL, buscar con yt-dlp primero
+          if (!query.startsWith('http://') && !query.startsWith('https://')) {
+            const searchResult = await searchYouTube(query);
+            if (searchResult) {
+              searchQuery = searchResult.url;
+              console.log(`✅ Encontrado: ${searchResult.title} - ${searchResult.url}`);
+            } else {
+              return interaction.editReply(`❌ No se encontraron resultados para: **${query}**`);
+            }
+          }
+
+          await client.distube.play(voiceChannel, searchQuery, {
+            textChannel: interaction.channel,
+            member: interaction.member
           });
         } catch (playError) {
           console.error("Error en play command:", playError);
@@ -416,10 +510,24 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (name === "join") {
-        const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel) return interaction.reply({ content: "❌ Debes estar en un canal de voz.", flags: 64 });
+        // Defer la respuesta inmediatamente
+        try {
+          await interaction.deferReply();
+        } catch (deferError) {
+          // Si la interacción ya expiró, ignorar silenciosamente
+          if (deferError.code === 10062) {
+            console.log("⚠️ Interacción expirada, ignorando comando antiguo");
+            return;
+          }
+          throw deferError;
+        }
 
-        await interaction.reply("🔗 Intentando conectar...");
+        const voiceChannel = interaction.member.voice.channel;
+        if (!voiceChannel) {
+          return interaction.editReply({ content: "❌ Debes estar en un canal de voz." });
+        }
+
+        await interaction.editReply("🔗 Intentando conectar...");
         await client.distube.voices.join(voiceChannel);
         await interaction.followUp("✅ Conectado correctamente! Ahora prueba `/p`");
       }
@@ -444,10 +552,16 @@ client.on("interactionCreate", async (interaction) => {
       }
     } catch (err) {
       console.error(err);
+      // Ignorar errores de interacciones expiradas
+      if (err.code === 10062) {
+        console.log("⚠️ Interacción expirada en catch general");
+        return;
+      }
+
       if (interaction.deferred || interaction.replied) {
-        interaction.followUp({ content: "⚠️ Ocurrió un error ejecutando el comando." }).catch(() => {});
+        interaction.followUp({ content: "⚠️ Ocurrió un error ejecutando el comando." }).catch(() => { });
       } else {
-        interaction.reply({ content: "⚠️ Ocurrió un error ejecutando el comando.", flags: 64 }).catch(() => {});
+        interaction.reply({ content: "⚠️ Ocurrió un error ejecutando el comando.", flags: 64 }).catch(() => { });
       }
     }
   }
@@ -455,12 +569,12 @@ client.on("interactionCreate", async (interaction) => {
   // --- Manejo de botones ---
   if (interaction.isButton()) {
     const queue = client.distube.getQueue(interaction.guildId);
-    
+
     try {
       switch (interaction.customId) {
         case 'music_pause_resume':
           if (!queue) return interaction.reply({ content: "❌ No hay música reproduciéndose.", flags: 64 });
-          
+
           if (queue.paused) {
             queue.resume();
             await interaction.reply({ content: "▶️ Música reanudada.", flags: 64 });
@@ -472,7 +586,7 @@ client.on("interactionCreate", async (interaction) => {
             // Pausar actualizaciones de progreso
             stopProgressUpdate(queue.id);
           }
-          
+
           // Actualizar panel de control inmediatamente
           updateControlPanel(queue, queue.songs[0]);
           break;
@@ -498,7 +612,7 @@ client.on("interactionCreate", async (interaction) => {
             .setColor(0x0099FF)
             .setTitle('📜 Cola de Reproducción')
             .setDescription(
-              queue.songs.slice(0, 10).map((song, i) => 
+              queue.songs.slice(0, 10).map((song, i) =>
                 `${i === 0 ? "▶️" : `${i}.`} **${song.name}** \`${song.formattedDuration}\``
               ).join('\n')
             )
@@ -516,13 +630,13 @@ client.on("interactionCreate", async (interaction) => {
           if (!queue || queue.songs.length <= 1) {
             return interaction.reply({ content: "❌ No hay canciones en cola para limpiar.", flags: 64 });
           }
-          
+
           // Mantener solo la canción actual
           const currentSong = queue.songs[0];
           queue.songs.splice(1); // Eliminar todas excepto la primera
-          
+
           await interaction.reply({ content: `🗑️ Cola limpiada. Solo queda: **${currentSong.name}**`, flags: 64 });
-          
+
           // Actualizar panel para reflejar la cola limpia
           updateControlPanel(queue, currentSong);
           break;

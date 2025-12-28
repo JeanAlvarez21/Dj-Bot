@@ -1,9 +1,9 @@
 # Archivo para configurar el proveedor Nixpacks en Railway
 [phases.setup]
-nixPkgs = ["nodejs_20", "ffmpeg-full", "yt-dlp"]
+nixPkgs = ["nodejs_20", "ffmpeg-full", "python3", "python3Packages.pip"]
 
 [phases.install]
-cmd = "npm ci"
+cmds = ["pip3 install yt-dlp==2024.8.6", "npm ci"]
 
 [start]
 cmd = "node index.js"
