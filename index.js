@@ -47,18 +47,23 @@ async function searchYouTube(query) {
     const isUrl = query.startsWith('http');
     const cleanQuery = isUrl ? query : `${query} official audio`;
 
-    // Comando compatible con Windows y Linux
-    const cmd = `${pythonCommand} -m yt_dlp "ytsearch1:${cleanQuery.replace(/"/g, '')}" --get-title --get-id --get-url --no-playlist --no-warnings -f "bestaudio/best"`;
+    // Flags potentes para Railway (evaden bloqueos de IP de datacenter)
+    const cmd = `${pythonCommand} -m yt_dlp "ytsearch1:${cleanQuery.replace(/"/g, '')}" --get-title --get-id --get-url --no-playlist --no-warnings --no-check-certificates --geo-bypass -f "ba/b"`;
 
     const { stdout } = await execAsync(cmd, { timeout: 15000 });
-    const lines = stdout.trim().split('\n');
+    const lines = stdout.trim().split('\n').filter(l => l.trim().length > 0);
 
     if (lines.length >= 3) {
+      const videoId = lines[1].trim();
+      const streamUrl = lines[lines.length - 1].trim();
+
+      // Si la URL del stream parece vacía o muy corta, algo falló
+      if (streamUrl.length < 20) return null;
+
       return {
-        title: lines[0],
-        url: `https://www.youtube.com/watch?v=${lines[1]}`,
-        // En algunas versiones la URL del stream es la última línea
-        streamUrl: lines[lines.length - 1]
+        title: lines[0].trim(),
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        streamUrl: streamUrl
       };
     }
     return null;
