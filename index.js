@@ -44,26 +44,26 @@ async function searchYouTube(query) {
   const execAsync = promisify(exec);
 
   try {
-    // Usamos una búsqueda más amplia para asegurar resultados
-    const cleanQuery = query.includes('topic') ? query : `${query} topic`;
+    const isUrl = query.startsWith('http');
+    const cleanQuery = isUrl ? query : `${query} official audio`;
 
-    // Formato más compatible: buscamos el mejor audio pero que sea reproducible directamente
-    // Añadimos --quiet y --no-warnings para que no ensucie el parseo
-    const cmd = `${pythonCommand} -m yt_dlp "ytsearch1:${cleanQuery}" --get-title --get-id --get-url --skip-download -f "ba*[vcodec=none]/bestaudio/best" --no-warnings --quiet --no-playlist`;
+    // Comando compatible con Windows y Linux
+    const cmd = `${pythonCommand} -m yt_dlp "ytsearch1:${cleanQuery.replace(/"/g, '')}" --get-title --get-id --get-url --no-playlist --no-warnings -f "bestaudio/best"`;
 
     const { stdout } = await execAsync(cmd, { timeout: 15000 });
-
     const lines = stdout.trim().split('\n');
+
     if (lines.length >= 3) {
       return {
         title: lines[0],
         url: `https://www.youtube.com/watch?v=${lines[1]}`,
-        streamUrl: lines[2]
+        // En algunas versiones la URL del stream es la última línea
+        streamUrl: lines[lines.length - 1]
       };
     }
     return null;
   } catch (error) {
-    console.error('Error buscando con yt-dlp:', error.message);
+    console.error('❌ Error en búsqueda yt-dlp:', error.message);
     return null;
   }
 }
@@ -84,35 +84,11 @@ async function playNextInQueue(guildId) {
     playerData.currentIndex++;
 
     console.log(`▶️ Reproduciendo siguiente: ${nextSong.title}`);
-
-    // Borrar panel anterior antes de enviar el nuevo
     await clearControlPanel(guildId);
-
-    const player = createAudioPlayer();
-    const resource = createAudioResource(nextSong.streamUrl);
-
-    player.play(resource);
-    connection.subscribe(player);
-
-    playerData.player = player;
-    playerData.paused = false;
-    playerData.playing = true;
-
-    // Enviar nuevo panel de control
-    await sendNewCustomControlPanel(guildId, nextSong, textChannel, nextSong.user);
-
-    player.on(AudioPlayerStatus.Idle, () => {
-      playNextInQueue(guildId);
-    });
-
-    player.on('error', error => {
-      console.error('Error en el reproductor:', error);
-      textChannel?.send(`❌ Error al reproducir: ${error.message}`);
-      playNextInQueue(guildId);
-    });
+    await startPlayerStream(guildId, nextSong);
   } else {
     // No hay más canciones, limpiar
-    connection.destroy();
+    try { playerData.connection.destroy(); } catch (e) { }
     activePlayers.delete(guildId);
     clearControlPanel(guildId);
     textChannel?.send('✅ Cola terminada');
@@ -201,94 +177,81 @@ async function playDirectStream(voiceChannel, streamUrl, title, textChannel, use
       user: user || { displayName: 'Usuario' }
     };
 
-    // Si ya hay un player activo, agregar a la cola
-    if (existingPlayer && existingPlayer.playing) {
+    // Si ya existe un player en este servidor, gestionar cola
+    if (existingPlayer) {
       existingPlayer.queue.push(song);
 
-      // Mensaje efímero para no ensuciar
-      await textChannel.send({
-        content: `➕ **${title}** agregado a la cola (Posición: ${existingPlayer.queue.length - existingPlayer.currentIndex - 1})`,
-        flags: 64
-      }).catch(() => { });
-
-      updateCustomControlPanel(guildId, existingPlayer.queue[existingPlayer.currentIndex]);
+      // Si el reproductor estaba parado o terminó, reiniciarlo con la nueva canción
+      if (!existingPlayer.player || existingPlayer.player.state.status === AudioPlayerStatus.Idle) {
+        existingPlayer.currentIndex = existingPlayer.queue.length - 1;
+        await startPlayerStream(guildId, song);
+      } else {
+        await textChannel.send({
+          content: `➕ **${title}** agregado a la cola (Posición: ${existingPlayer.queue.length - existingPlayer.currentIndex - 1})`,
+          flags: 64
+        }).catch(() => { });
+        await updateCustomControlPanel(guildId, existingPlayer.queue[existingPlayer.currentIndex]);
+      }
       return true;
     }
 
-    // Resetear mensajes de control anteriores si existen para que el nuevo esté al final
-    await clearControlPanel(guildId);
+    // Si es un inicio limpio, destruir conexiones de DisTube para evitar conflictos
+    try { client.distube.voices.leave(voiceChannel.guild.id); } catch (e) { }
+
     const connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guildId,
       adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     });
 
-    const player = createAudioPlayer();
-    const resource = createAudioResource(streamUrl);
-
-    player.play(resource);
-    connection.subscribe(player);
-
-    // Guardar player activo con cola
+    // Inicializar objeto de estado
     activePlayers.set(guildId, {
-      player,
       connection,
       queue: [song],
       currentIndex: 0,
       paused: false,
       playing: true,
-      textChannel
+      textChannel,
+      player: null
     });
 
-    textChannel.send(`🎶 Reproduciendo: **${title}**`);
+    await startPlayerStream(guildId, song);
+    return true;
+  } catch (error) {
+    console.error('Error en playDirectStream:', error);
+    return false;
+  }
+}
 
-    // Crear panel de control
-    const embed = new EmbedBuilder()
-      .setColor(0x00FF00)
-      .setTitle('🎶 Panel de Control')
-      .setDescription(`**Sonando:** ${title}`)
-      .addFields(
-        { name: '⏱️ Duración:', value: '02:47', inline: true },
-        { name: '👤 Solicitado por:', value: user?.displayName || 'Usuario', inline: true },
-        { name: '📊 Estado:', value: '▶️ Reproduciendo', inline: true },
-        { name: '📝 Canciones en cola:', value: '0', inline: false }
-      )
-      .setTimestamp();
+// --- Función para iniciar o cambiar de canción en el stream ---
+async function startPlayerStream(guildId, song) {
+  const playerData = activePlayers.get(guildId);
+  if (!playerData) return;
 
-    const buttons = createMusicControlButtons({ paused: false });
+  try {
+    const player = createAudioPlayer();
+    const resource = createAudioResource(song.streamUrl);
 
-    try {
-      const controlMessage = await textChannel.send({
-        embeds: [embed],
-        components: buttons
-      });
+    player.play(resource);
+    playerData.connection.subscribe(player);
+    playerData.player = player;
+    playerData.playing = true;
+    playerData.paused = false;
 
-      activeControlMessages.set(guildId, {
-        message: controlMessage,
-        channel: textChannel
-      });
-    } catch (error) {
-      console.error('Error creando panel de control:', error);
-    }
+    // Enviar nuevo panel de control
+    await sendNewCustomControlPanel(guildId, song, playerData.textChannel, song.user);
 
     player.on(AudioPlayerStatus.Idle, () => {
-      // Pequeña espera para evitar bucles infinitos si el stream falla
       setTimeout(() => playNextInQueue(guildId), 1000);
     });
 
     player.on('error', error => {
-      console.error('Error en el reproductor de voz:', error);
-      // No enviar mensaje al canal para no spamear, solo saltar
-      playNextInQueue(guildId);
+      console.error('AudioPlayer Error:', error);
+      setTimeout(() => playNextInQueue(guildId), 1000);
     });
-
-    return true;
-  } catch (error) {
-    console.error('Error reproduciendo stream directo:', error);
-    if (error.message && error.message.includes('panel')) {
-      return true;
-    }
-    return false;
+  } catch (err) {
+    console.error('Error al iniciar stream:', err);
+    setTimeout(() => playNextInQueue(guildId), 1000);
   }
 }
 
@@ -521,22 +484,10 @@ async function clearControlPanel(guildId) {
 // --- Eventos de música ---
 client.distube
   .on("playSong", (queue, song) => {
-    console.log(`🎶 REPRODUCIENDO: ${song.name} - Duración: ${song.formattedDuration}`);
-
-    // Enviar mensaje simple de "reproduciendo" sin botones
-    queue.textChannel?.send(`🎶 Reproduciendo: **${song.name}** \`${song.formattedDuration}\``).catch(console.error);
-
-    // Actualizar panel de control (siempre al final)
-    updateControlPanel(queue, song);
+    // console.log(`Iniciando reproducción vía DisTube: ${song.name}`);
   })
   .on("addSong", (queue, song) => {
-    console.log(`➕ Canción añadida: ${song.name}`);
-    queue.textChannel?.send(`➕ Añadida a la cola: **${song.name}**`).catch(() => { });
-
-    // Actualizar panel para mostrar nueva información de cola
-    if (queue.songs.length > 1) { // Solo si hay más de una canción
-      updateControlPanel(queue, queue.songs[0]);
-    }
+    // console.log(`➕ Canción añadida: ${song.name}`);
   })
   .on("addList", (queue, playlist) => {
     console.log(`🧾 Playlist añadida: ${playlist.name}`);
@@ -683,77 +634,40 @@ client.on("interactionCreate", async (interaction) => {
 
 
         try {
-          // 1. Manejo de Spotify (convertir a búsqueda)
+          // 1. Manejo prioritario de Spotify
           if (query.includes('spotify.com')) {
-            await interaction.editReply(`🟢 Detectado link de Spotify. Obteniendo información...`);
+            await interaction.editReply(`🟢 Resolviendo link de Spotify...`);
             try {
-              // Usamos DisTube solo para resolver el nombre, no para reproducir
               const spotifyResult = await client.distube.handler.resolve(query);
-
               if (spotifyResult) {
-                // Si es un track individual
-                if (spotifyResult.type === 'song' || spotifyResult.name) {
-                  const songName = `${spotifyResult.name} ${spotifyResult.uploader?.name || ''}`;
-                  const searchResult = await searchYouTube(songName);
-                  if (searchResult) {
-                    return await playDirectStream(voiceChannel, searchResult.streamUrl, searchResult.title, interaction.channel, interaction.member);
-                  }
-                }
-                // Si es una playlist, DisTube nos devuelve un objeto con canciones
-                else if (spotifyResult.songs) {
-                  await interaction.editReply(`🟢 Cargando playlist de Spotify: **${spotifyResult.name}** (${spotifyResult.songs.length} canciones)`);
-
-                  for (const song of spotifyResult.songs.slice(0, 15)) { // Limitamos a 15 para evitar bloqueos
+                if (spotifyResult.songs) {
+                  await interaction.editReply(`🟢 Cargando playlist: **${spotifyResult.name}**`);
+                  for (const song of spotifyResult.songs.slice(0, 10)) {
                     const search = await searchYouTube(`${song.name} ${song.uploader?.name || ''}`);
-                    if (search) {
-                      await playDirectStream(voiceChannel, search.streamUrl, search.title, interaction.channel, interaction.member);
-                    }
+                    if (search) await playDirectStream(voiceChannel, search.streamUrl, search.title, interaction.channel, interaction.member);
                   }
                   return;
+                } else {
+                  const songName = `${spotifyResult.name} ${spotifyResult.uploader?.name || ''}`;
+                  const search = await searchYouTube(songName);
+                  if (search) {
+                    await playDirectStream(voiceChannel, search.streamUrl, search.title, interaction.channel, interaction.member);
+                    return;
+                  }
                 }
               }
-            } catch (spotifyErr) {
-              console.error("Error resolviendo Spotify:", spotifyErr);
-              return interaction.editReply(`❌ No pude obtener información de ese link de Spotify.`);
+            } catch (err) {
+              console.error("Error Spotify:", err);
             }
           }
 
-          // 2. Si es una URL de YouTube, intentar con DisTube pero rompiendo nuestra conexión anterior si existe
-          if (query.startsWith('http://') || query.startsWith('https://')) {
-            const existingConnection = activePlayers.get(interaction.guildId);
-            if (existingConnection) {
-              // Si queremos que DisTube maneje URLs de YT directas, debemos liberar el canal
-              existingConnection.connection.destroy();
-              activePlayers.delete(interaction.guildId);
-            }
-
-            return await client.distube.play(voiceChannel, query, {
-              textChannel: interaction.channel,
-              member: interaction.member
-            });
-          }
-
-          // 3. Si es búsqueda por nombre (ya funciona)
+          // 2. Cualquier otra búsqueda o URL (Todo por nuestro motor yt-dlp)
           const searchResult = await searchYouTube(query);
           if (searchResult) {
-            console.log(`✅ Encontrado: ${searchResult.title}`);
-            console.log(`📺 YouTube: ${searchResult.url}`);
-
             await interaction.editReply(`🎵 Reproduciendo: **${searchResult.title}**`);
-
-            const success = await playDirectStream(
-              voiceChannel,
-              searchResult.streamUrl,
-              searchResult.title,
-              interaction.channel,
-              interaction.member
-            );
-
-            if (!success) {
-              await interaction.followUp(`❌ Error al reproducir el stream`);
-            }
+            await playDirectStream(voiceChannel, searchResult.streamUrl, searchResult.title, interaction.channel, interaction.member);
           } else {
-            return interaction.editReply(`❌ No se encontraron resultados para: **${query}**`);
+            await interaction.editReply(`❌ No encontré resultados para: **${query}**`);
           }
         } catch (playError) {
           console.error("Error en play command:", playError);
