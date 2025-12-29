@@ -3,7 +3,7 @@
 nixPkgs = ["nodejs_20", "ffmpeg-full", "python3", "python3Packages.pip"]
 
 [phases.install]
-cmds = ["pip3 install yt-dlp==2024.8.6", "npm ci"]
+cmds = ["pip3 install --upgrade yt-dlp", "npm ci"]
 
 [start]
 cmd = "node index.js"
