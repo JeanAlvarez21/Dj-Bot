@@ -47,8 +47,8 @@ async function searchYouTube(query) {
     // Usamos "Topic" para forzar resultados de YouTube Music (audio de álbum limpio)
     const cleanQuery = `${query} topic`;
 
-    // Obtener el título, ID y URL directa del stream
-    const { stdout } = await execAsync(`${pythonCommand} -m yt_dlp "ytsearch:${cleanQuery}" --get-title --get-id --get-url --skip-download -f bestaudio`, {
+    // Usamos un selector de formato más flexible (bestaudio/best) y silenciamos alertas con --no-warnings
+    const { stdout } = await execAsync(`${pythonCommand} -m yt_dlp "ytsearch:${cleanQuery}" --get-title --get-id --get-url --skip-download -f "bestaudio/best" --no-warnings`, {
       timeout: 15000
     });
 
